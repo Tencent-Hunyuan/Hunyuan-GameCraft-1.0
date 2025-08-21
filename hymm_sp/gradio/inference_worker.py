@@ -22,7 +22,6 @@ from hymm_sp.modules.parallel_states import (
 from decord import VideoReader
 
 # ========== Configuration and Global Variables ==========
-STATE_FILE = "./gradio_results/current_index.txt"
 TRIGGER_FILE = "./gradio_results/trigger.txt"
 RESULT_DIR = "./gradio_results"
 INPUT_IMAGES_DIR = os.path.join(RESULT_DIR, "input")
@@ -31,7 +30,6 @@ CKPT_PATH = os.getenv("CKPT_PATH")
 
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(INPUT_IMAGES_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
 # Global variables
 sampler = None
@@ -63,23 +61,6 @@ def signal_handler(sig, frame):
     logger.info(f"Rank {rank} received shutdown signal.")
     shutdown_flag = True
 
-# ========== Model Loading ==========
-def sanity_check_args(args):
-    import re
-    vae_pattern = r"\d{2,3}-\d{1,2}c-\w+"
-    if not re.match(vae_pattern, args.vae):
-        raise ValueError(
-            f"Invalid VAE model: {args.vae}. Must be in the format of '{vae_pattern}'."
-        )
-    vae_channels = int(args.vae.split("-")[1][:-1])
-    if args.latent_channels is None:
-        args.latent_channels = vae_channels
-    if vae_channels != args.latent_channels:
-        raise ValueError(
-            f"Latent channels ({args.latent_channels}) must match the VAE channels ({vae_channels})."
-        )
-    return args
-
 # ========== Utility Function: Save Base64 Image ==========
 def save_base64_image(base64_string, save_dir, prefix="input_image"):
     """Decode Base64 string and save as PNG image file"""
@@ -106,7 +87,6 @@ def load_model():
     from hymm_sp.config import parse_args
     args = parse_args()
 
-    # 设置基础参数
     args.ckpt = CKPT_PATH
     args.add_neg_prompt = "overexposed, low quality, deformation, a poor composition, bad hands, bad teeth, bad eyes, bad limbs, distortion, blurring, text, subtitles, static, picture, black border."
     args.input_prompt = "Realistic, High-quality."
@@ -197,12 +177,12 @@ def worker_loop(rank, world_size, device):
                 except OSError:
                     pass
 
-        # 广播生成信号
+        # broadcast generate signal
         should_generate_tensor = torch.tensor([int(should_generate)], dtype=torch.long, device=device)
         dist.broadcast(should_generate_tensor, src=0)
         should_generate = bool(should_generate_tensor.item())
 
-        # 广播自定义参数
+        # broadcast params
         if should_generate:
             if rank == 0 and custom_params is not None:
                 custom_params_str = json.dumps(custom_params)
@@ -225,7 +205,7 @@ def worker_loop(rank, world_size, device):
                     custom_params_str = custom_params_bytes.decode('utf-8')
                     custom_params = json.loads(custom_params_str)
 
-        # 广播序号和终止信号
+        # broadcast index and shutdown
         index_tensor = torch.tensor([current_index], dtype=torch.long, device=device)
         dist.broadcast(index_tensor, src=0)
         current_index = index_tensor.item()
@@ -247,16 +227,14 @@ def worker_loop(rank, world_size, device):
                 logger.info(f"Rank {rank}: Starting generation...")
                 
                 if custom_params is not None:
-                    # 处理自定义参数生成
                     temp_args = type('TempArgs', (object,), vars(args))()
                     
-                    # 覆盖参数
+                    # cover
                     temp_args.add_pos_prompt = custom_params.get("add_pos_prompt", args.add_pos_prompt)
                     temp_args.add_neg_prompt = custom_params.get("add_neg_prompt", args.add_neg_prompt)
                     temp_args.cfg_scale = float(custom_params.get("cfg_scale", args.cfg_scale))
                     temp_args.image_start = bool(custom_params.get("image_start", args.image_start))
                     temp_args.video_path = custom_params.get("video_path", None)
-                    print("!!!", temp_args.video_path, temp_args.image_start)
                     temp_args.seed = int(custom_params.get("seed", args.seed))
                     temp_args.sample_n_frames = int(custom_params.get("sample_n_frames", args.sample_n_frames))
                     temp_args.infer_steps = int(custom_params.get("infer_steps", args.infer_steps))
@@ -264,18 +242,14 @@ def worker_loop(rank, world_size, device):
                     temp_args.save_path = custom_params.get("save_path", args.save_path)
                     temp_args.input_prompt = custom_params.get("input_prompt", args.input_prompt)
                     
-                    # 处理列表参数
                     action_list_raw = custom_params.get("action_list", args.action_list)
                     temp_args.action_list = action_list_raw if isinstance(action_list_raw, list) else args.action_list
-                    
                     action_speed_list_raw = custom_params.get("action_speed_list", args.action_speed_list)
                     temp_args.action_speed_list = [float(a) for a in action_speed_list_raw] if isinstance(action_speed_list_raw, list) else args.action_speed_list
                     
-                    # 处理视频尺寸
                     video_size_raw = custom_params.get("video_size", [704, 1216])
                     temp_args.video_size = [int(video_size_raw[0]), int(video_size_raw[1])] if isinstance(video_size_raw, list) and len(video_size_raw) == 2 else [704, 1216]
                     
-                    # 处理上传图像
                     base64_image_str = custom_params.get("input_image", "")
                     if base64_image_str:
                         image_path = save_base64_image(base64_image_str, INPUT_IMAGES_DIR, prefix=f"custom_{int(time.time())}")
@@ -292,34 +266,10 @@ def worker_loop(rank, world_size, device):
                             raise ValueError("Failed to process uploaded image")
                     else:
                         raise ValueError("No input image provided")
-                    
                 else:
-                    # 处理自动序列生成
-                    logger.info(f"Processing AUTOMATIC generation for index {current_index}")
-                    temp_args = args
-                    
-                    # 初始化虚拟数据集（实际使用时替换为真实数据集）
-                    if dataset is None:
-                        class DummyDataset:
-                            def __init__(self, size):
-                                self.size = size
-                            def __len__(self):
-                                return self.size
-                            def __getitem__(self, idx):
-                                return {
-                                    'prompt': f"Example prompt {idx}",
-                                    'index': f"sample_{idx}",
-                                    'ref_image': "path/to/your/reference/image.jpg"  # 替换为实际图像路径
-                                }
-                        dataset = DummyDataset(1000)
-                    
-                    if current_index >= len(dataset):
-                        raise IndexError(f"Index {current_index} out of range")
-                    batch = dataset[current_index]
-                    if 'prompt' not in batch or 'index' not in batch or 'ref_image' not in batch:
-                            raise ValueError("Dataset item missing required fields")
+                    raise ValueError("No params provided")
                 
-                # 核心推理逻辑
+
                 prompt = batch.get('prompt')
                 save_name = batch.get('index')
                 image_path = batch.get('ref_image')
@@ -330,15 +280,15 @@ def worker_loop(rank, world_size, device):
                         
                 logger.info(f"Rank {rank}: Processing: Prompt={prompt}, Image Path={image_path}")
 
-                # 加载并预处理图像
+                # preprocess image
                 raw_ref_image = Image.open(image_path).convert('RGB')
                 ref_image_pixel_value = ref_image_transform(raw_ref_image).unsqueeze(0).unsqueeze(2).to(device)
                 ref_images = [raw_ref_image]
 
-                # 设置随机种子
+                # seed set
                 seed = temp_args.seed if hasattr(temp_args, 'seed') else random.randint(0, 1_000_000)
 
-                # 编码图像到潜在空间
+                # code image to latent space
                 if temp_args.video_path is None:
                     with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=True):
                         sampler.pipeline.vae.enable_tiling()
@@ -366,7 +316,7 @@ def worker_loop(rank, world_size, device):
                 ref_latents = raw_ref_latents
                 out_cat = None
 
-                # 生成视频
+                # pipeline
                 for idx, action_id in enumerate(temp_args.action_list):
                     is_image = idx == 0 and temp_args.image_start
 
@@ -406,7 +356,7 @@ def worker_loop(rank, world_size, device):
                             out_cat = torch.cat([out_cat, sub_samples], dim=2)
 
                 if rank == 0:
-                    # 保存结果
+                    # result save
                     if out_cat is not None:
                         save_path = os.path.join(temp_args.save_path, f"{save_name}.mp4")
                         os.makedirs(temp_args.save_path, exist_ok=True)
@@ -414,7 +364,7 @@ def worker_loop(rank, world_size, device):
                         result_data["video_path"] = save_path
                         logger.info(f"Rank {rank}: Video saved to {save_path}")
 
-                        # 提取帧
+                        # frame extract
                         frame_paths = []
                         video_tensor = out_cat.squeeze(0)
                         num_frames = video_tensor.shape[1]
@@ -442,13 +392,8 @@ def worker_loop(rank, world_size, device):
                 logger.error(traceback.format_exc())
                 result_data["error"] = error_msg
 
-            # 保存结果文件
             if rank == 0:
-                if custom_params is not None:
-                    result_file_path = os.path.join(RESULT_DIR, f"result_custom.json")
-                else:
-                    result_file_path = os.path.join(RESULT_DIR, f"result_{current_index}.json")
-                    
+                result_file_path = os.path.join(RESULT_DIR, f"result_custom.json")
                 result_tmp_path = result_file_path + ".tmp"
                 try:
                     with open(result_tmp_path, 'w') as f:
@@ -458,15 +403,6 @@ def worker_loop(rank, world_size, device):
                 except Exception as e:
                     logger.error(f"Failed to write result file: {e}")
                 
-                # 更新序号
-                if custom_params is None:
-                    current_index += 1
-                    try:
-                        with open(STATE_FILE, 'w') as f:
-                            f.write(str(current_index))
-                        logger.info(f"Index updated to {current_index}")
-                    except Exception as e:
-                        logger.error(f"Failed to update state file: {e}")
 
         time.sleep(0.1)
     logger.info(f"Rank {rank}: Worker loop finished")

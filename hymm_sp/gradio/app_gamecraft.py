@@ -16,8 +16,6 @@ VIDEO_ENC = os.getenv("VIDEO_ENC", "vp09")
 BACKEND_URL = f"http://localhost:{API_PORT}/generate_next"
 HEALTH_URL = f"http://localhost:{API_PORT}/health"
 OUTPUT_DIR = "./gradio_results/"
-STATE_FILE = "./gradio_results/current_index.txt"
-DEFAULT_IMAGE_PATH = "asset/village.png"
 
 PRESET_EXAMPLES = [
     {
@@ -46,16 +44,13 @@ ACTION_MAP = {
 previous_video_path = None
 previous_first_frame = None
 all_video_paths = []
-current_input_type = None  # 记录当前输入类型："image" 或 "video"
+current_input_type = None  # record input type: "image" or "video"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-os.makedirs(os.path.dirname(DEFAULT_IMAGE_PATH), exist_ok=True)
 
 def load_preset_by_selection(evt: gr.SelectData):
-    """使用Gradio的SelectData事件获取选中项索引"""
-    selected_index = evt.index  # 从事件对象中提取索引
-    # print(f"select index: {selected_index}")  # 调试输出
+    selected_index = evt.index 
+    # print(f"select index: {selected_index}")
     if selected_index is None:
         return None, ""
     if 0 <= selected_index < len(PRESET_EXAMPLES):
@@ -84,13 +79,12 @@ def get_first_frame(video_path):
     return None
 
 def check_video_validity(video_path):
-    """检查视频文件是否有效，要求至少包含33帧"""
+    """at least 33 frames"""
     if not video_path or not os.path.exists(video_path):
         return False, "Video file not found"
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return False, "Could not open video file"
-    # 计算视频总帧数
     frame_count = 0
     while True:
         ret, _ = cap.read()
@@ -269,13 +263,8 @@ def generate_custom_video(
             previous_first_frame = get_first_frame(video_path)
             base64_img = image_to_base64(previous_first_frame)
         else:
-            # if input_type == "image" and type(input_content) == str:
-            #     # new image selected
             img = Image.open(input_content)
             base64_img = image_to_base64(img)
-            # else:
-            #     # new image uploaded
-            #     base64_img = image_to_base64(input_content)
             
             previous_video_path = None
             previous_first_frame = None
@@ -340,10 +329,8 @@ def generate_custom_video(
                 concatenated_path = os.path.join(OUTPUT_DIR, concat_filename)
                 concatenated_path = concatenate_videos(all_video_paths, concatenated_path)
             
-            # 更新当前输入类型
+            # update input type
             current_input_type = input_type
-            
-            # 对于视频输入，保持Video Continuation为True且不可交互
             if input_type == "video":
                 return (concatenated_path if concatenated_path else video_path, 
                         frame_paths, 
@@ -361,38 +348,33 @@ def generate_custom_video(
         return None, [], f"❌ Unexpected error: {str(e)}", gr.update(interactive=bool(previous_video_path))
 
 def handle_input_change(input_content):
-    """处理输入内容变化，更新状态"""
     global previous_video_path, previous_first_frame, all_video_paths, current_input_type
     
     if input_content is not None:
-        # 重置状态
+        # reset state
         previous_video_path = None
         previous_first_frame = None
         all_video_paths = []
         
-        # 检测输入类型
+        # detect input type
         if isinstance(input_content, str) and input_content.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
             current_input_type = "video"
-            # 视频输入时，Video Continuation保持True且不可交互
+            # Video Continuation=True(cannot change)
             return gr.update(value=True, interactive=False), "video"
         else:
             current_input_type = "image"
-            # 图片输入时，Video Continuation不可交互直到首次生成
             return gr.update(value=False, interactive=False), "image"
     else:
         current_input_type = None
         return gr.update(value=False, interactive=False), None
 
-# 处理文件上传预览逻辑
 def update_preview(file_info):
     if not file_info:
         return gr.update(visible=False), gr.update(visible=False)
     
-    # 获取文件路径和名称
     file_path = file_info.name
     file_name = file_path.lower()
     
-    # 根据文件类型显示不同的预览组件
     if file_name.endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
         return gr.update(value=file_path, visible=True), gr.update(visible=False)
     elif file_name.endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm')):
