@@ -159,18 +159,18 @@ def generate_motion_segment(current_pose,
             
         current_pose['position'] = positions[-1]
         
-    elif motion_type.endswith('rot'):
-        axis = motion_type.split('_')[0]
+    elif motion_type.startswith('rotate'):
+        axis = motion_type.split('_')[1]
         total_rotation = np.zeros(3)
         
         if axis == 'left':
-            total_rotation[0] = value  
+            total_rotation[1] = value
         elif axis == 'right':
-            total_rotation[0] = -value   
+            total_rotation[1] = -value 
         elif axis == 'up':
-            total_rotation[2] = -value  
+            total_rotation[0] = -value
         elif axis == 'down':
-            total_rotation[2] = value   
+            total_rotation[0] = value  
             
         step = total_rotation / duration
         
