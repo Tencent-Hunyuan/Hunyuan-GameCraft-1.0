@@ -31,20 +31,19 @@
   - [ ] Gradio & Huggingface Demo
 
 ## Contents
-- [**Hunyuan-GameCraft** 🌅](#Hunyuan-GameCraft-)
+- [**Hunyuan-GameCraft** 🎮](#hunyuan-gamecraft-)
   - [🔥🔥🔥 News!!](#-news)
   - [📑 Open-source Plan](#-open-source-plan)
   - [Contents](#contents)
   - [**Abstract**](#abstract)
-  - [**Overall Architecture**](#-overall-architecture)
+  - [**Overall Architecture**](#overall-architecture)
   - [📜 Requirements](#-requirements)
   - [🛠️ Dependencies and Installation](#️-dependencies-and-installation)
     - [Installation Guide for Linux](#installation-guide-for-linux)
   - [🧱 Download Pretrained Models](#-download-pretrained-models)
   - [🚀 Parallel Inference on Multiple GPUs](#-parallel-inference-on-multiple-gpus)
-  - [🔑 Single-gpu Inference](#-single-gpu-inference)
-    - [Run with very low VRAM](#run-with-very-low-vram)
-  - [Run a Gradio Server](#run-a-gradio-server)
+  - [🔑 Single-gpu with Low-VRAM Inference](#-single-gpu-with-low-vram-inference)
+  - [🖥️ Gradio Launching](#️-gradio-launching)
   - [🔗 BibTeX](#-bibtex)
   - [Acknowledgements](#acknowledgements)
 ---
@@ -260,7 +259,23 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port 29605 hymm_sp/sample_batch.
     --save-path './results_distill_poor/'
 ```
 
+## 🖥️ Gradio Launching
+Refer to the corresponding comments to modify the following sections in `scripts/launch_app_sp.sh`:
+``` bash
+export MODEL_BASE="weights/stdmodels"
+export CKPT_PATH="weights/gamecraft_models/mp_rank_00_model_states_distill.pt"
+export API_PORT="8082" # For distributed inference server port
+export GRADIO_PORT="8080" # For GradioUI port
+export VIDEO_ENC="vp09" # "avc1"(faster)
+NUM_GPUS=8
+```
+After installing gradio(>5.0) and flask, simply run:
+``` bash
+bash scripts/launch_app_sp.sh
+```
+This will automatically start the distributed inference API service and the Gradio web interface (default: http://127.0.0.1:8080). All runtime logs are available in `gradio_results/api.log`(API service logs) and `gradio_results/worker.log`(inference worker logs). The web interface looks like:
 
+![image](asset/gradio.png)
 
 ## 🔗 BibTeX
 

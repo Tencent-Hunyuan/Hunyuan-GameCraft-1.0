@@ -15,7 +15,7 @@ from hymm_sp.inference import Inference
 from hymm_sp.diffusion.schedulers import FlowMatchDiscreteScheduler
 from packaging import version as pver
 
-ACTION_DICT = {"w": "forward", "a": "left", "d": "right", "s": "backward"}
+ACTION_DICT = {"w": "forward", "a": "left", "d": "right", "s": "backward", "left_rot":"left_rot", "right_rot":"right_rot", "up_rot":"up_rot", "down_rot":"down_rot",}
             
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
